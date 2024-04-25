@@ -38,7 +38,7 @@ jobs:
         path: target/release/${{ matrix.executable }}
 
     - name: Package Source Code
-      run: zip -r source_code.zip .
+      run: zip -r source_code.zip . -x "target/*"
 
     - name: Create Release
       id: create_release
