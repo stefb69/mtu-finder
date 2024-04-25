@@ -1,0 +1,49 @@
+# Fichiers compilés
+*.o
+*.so
+*.rlib
+*.dll
+*.dylib
+*.exe
+
+# Fichiers de débogage
+*.d
+
+# Fichiers de package
+*.tar
+*.tar.gz
+*.zip
+*.7z
+
+# Fichiers de configuration de l'IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Fichiers Rust
+/target/
+**/*.rs.bk
+
+# Fichiers temporaires
+*~
+*.tmp
+*.bak
+*.swp
+*~.nib
+local.properties
+.classpath
+.settings/
+.loadpath
+.recommenders/
+
+# Fichiers système
+.DS_Store
+Thumbs.db
+
+# Fichiers de log
+*.log
+
+# Fichiers de cache
+*.cache
+*.pan

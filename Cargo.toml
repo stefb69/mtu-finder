@@ -1,0 +1,11 @@
+[package]
+name = "mtu-finder"
+version = "0.0.1"
+edition = "2018"
+
+[dependencies]
+ping-rs = "0.1.2"
+indicatif = "0.17.8"
+clap = "3.1.4"
+rand = "0.8.5"
+
