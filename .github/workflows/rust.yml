@@ -1,0 +1,53 @@
+name: Rust Build
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install Rust
+      run: rustup default stable
+    - name: Build for Windows
+      run: cargo build --release --verbose
+    - name: Upload Windows Executable
+      uses: actions/upload-artifact@v2
+      with:
+        name: windows-executable
+        path: target/release/mtu-findert.exe
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install Rust
+      run: rustup default stable
+    - name: Build for macOS
+      run: cargo build --release --verbose
+    - name: Upload macOS Executable
+      uses: actions/upload-artifact@v2
+      with:
+        name: macos-executable
+        path: target/release/mtu-finder
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install Rust
+      run: rustup default stable
+    - name: Build for Linux
+      run: cargo build --release --verbose
+    - name: Upload Linux Executable
+      uses: actions/upload-artifact@v2
+      with:
+        name: linux-executable
+        path: target/release/mtu-finder
