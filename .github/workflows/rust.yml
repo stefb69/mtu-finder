@@ -38,8 +38,8 @@ jobs:
         path: target/release/${{ matrix.executable }}
 
     - name: Package Source Code
-      if: runner.os == 'Linux'
-      run: zip -r source_code.zip . -x "target/*"
+      if: startsWith(github.ref, 'refs/tags/') && runner.os == 'Linux'
+      run: zip -r source_code.zip . -x "target/*" -x ".git/*"
       shell: bash
 
     - name: Create Release
