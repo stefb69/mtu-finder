@@ -36,18 +36,14 @@ impl MtuFinder {
         for size in self.min_mtu..=self.max_mtu {
             pb.inc(1);
             let buffersize = size - 28; // 28 is the size of the IP header
- //           let ping = Ping::new(self.src_ip, self.dst_ip, buffersize, PingFlags::DF);
-//            let data = vec![255; buffersize];
             let data: Vec<u8> = (0..buffersize).map(|_| rand::random::<u8>()).collect();
             let ip_addr = IpAddr::V4(self.dst_ip);
             let response = ping_rs::send_ping(&ip_addr, timeout, &data, Some(&options));
             match response {
                 Ok(reply) =>  { 
-                    println!("Reply from {}: bytes={} time={}ms TTL={}", reply.address, data.len(), reply.rtt, options.ttl);
                     last_working_mtu = size;
                 },
                 Err(e) => {
-                    println!("{:?}", e);
                     break;
                 }
             }
@@ -90,7 +86,7 @@ fn main() {
     let (min_mtu, max_mtu) = range.split_once(':').unwrap();
     let min_mtu: u16 = min_mtu.parse().unwrap();
     let max_mtu: u16 = max_mtu.parse().unwrap();
-
+    println!("\x1b[1;34m🔍 mtu-finder:\x1b[0m \x1b[1;33mLooking for the optimal MTU\x1b[0m between \x1b[1;32m{}\x1b[0m and \x1b[1;32m{}\x1b[0m for connection from \x1b[1;35m{}\x1b[0m to \x1b[1;35m{}\x1b[0m 🌐", min_mtu, max_mtu, src_ip, dst_ip);
     let finder = MtuFinder::new(src_ip, dst_ip, min_mtu, max_mtu);
     let mtu = finder.find_mtu();
 
