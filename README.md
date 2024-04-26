@@ -1,5 +1,3 @@
----
-
 # MTU Finder
 
 MTU Finder is a utility tool written in Rust that helps determine the optimal Maximum Transmission Unit (MTU) for a network connection between your machine and a specified destination IP address. It systematically tests different MTU sizes to find the largest size that does not fragment IP packets.
@@ -60,5 +58,3 @@ This project is licensed under the GNU General Public License v3.0 - see the [gp
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request or open an issue for any bugs found or improvements you suggest.
-
----
