@@ -6,16 +6,14 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 
 struct MtuFinder {
-    src_ip: Ipv4Addr,
     dst_ip: Ipv4Addr,
     min_mtu: u16,
     max_mtu: u16,
 }
 
 impl MtuFinder {
-    fn new(src_ip: Ipv4Addr, dst_ip: Ipv4Addr, min_mtu: u16, max_mtu: u16) -> Self {
+    fn new(dst_ip: Ipv4Addr, min_mtu: u16, max_mtu: u16) -> Self {
         MtuFinder {
-            src_ip,
             dst_ip,
             min_mtu,
             max_mtu,
@@ -40,10 +38,10 @@ impl MtuFinder {
             let ip_addr = IpAddr::V4(self.dst_ip);
             let response = ping_rs::send_ping(&ip_addr, timeout, &data, Some(&options));
             match response {
-                Ok(reply) =>  { 
+                Ok(_) =>  { 
                     last_working_mtu = size;
                 },
-                Err(e) => {
+                Err(_) => {
                     break;
                 }
             }
@@ -58,12 +56,6 @@ fn main() {
         .version("1.0")
         .author("Your Name")
         .about(" Finds the optimal MTU for a network connection")
-        .arg(Arg::new("source")
-            .short('s')
-            .long("source")
-            .takes_value(true)
-            .default_value("0.0.0.0")
-            .help("Source IP address (optional)"))
         .arg(Arg::new("destination")
             .short('d')
             .long("destination")
@@ -80,16 +72,41 @@ fn main() {
 
     let matches = app.get_matches();
 
-    let src_ip = matches.value_of("source").unwrap().parse::<Ipv4Addr>().unwrap();
     let dst_ip = matches.value_of("destination").unwrap().parse::<Ipv4Addr>().unwrap();
     let range = matches.value_of("range").unwrap();
     let (min_mtu, max_mtu) = range.split_once(':').unwrap();
     let min_mtu: u16 = min_mtu.parse().unwrap();
     let max_mtu: u16 = max_mtu.parse().unwrap();
-    println!("\x1b[1;34m🔍 mtu-finder:\x1b[0m \x1b[1;33mLooking for the optimal MTU\x1b[0m between \x1b[1;32m{}\x1b[0m and \x1b[1;32m{}\x1b[0m for connection from \x1b[1;35m{}\x1b[0m to \x1b[1;35m{}\x1b[0m 🌐", min_mtu, max_mtu, src_ip, dst_ip);
-    let finder = MtuFinder::new(src_ip, dst_ip, min_mtu, max_mtu);
+    println!("\x1b[1;34m🔍 mtu-finder:\x1b[0m \x1b[1;33mLooking for the optimal MTU\x1b[0m between \x1b[1;32m{}\x1b[0m and \x1b[1;32m{}\x1b[0m for connection to \x1b[1;35m{}\x1b[0m 🌐", min_mtu, max_mtu, dst_ip);
+    let finder = MtuFinder::new(dst_ip, min_mtu, max_mtu);
     let mtu = finder.find_mtu();
 
     println!("Recommended MTU: {}", mtu);
     println!("Configuration suggestion: Set your MTU to {} for optimal performance.", mtu);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_find_mtu() {
+        let dst_ip = Ipv4Addr::new(8, 8, 8, 8);
+        let min_mtu = 1300;
+        let max_mtu = 1500;
+        let finder = MtuFinder::new(dst_ip, min_mtu, max_mtu);
+        let mtu = finder.find_mtu();
+        assert!(mtu >= min_mtu && mtu <= max_mtu);
+    }
+
+    #[test]
+    fn test_new() {
+        let dst_ip = Ipv4Addr::new(8, 8, 8, 8);
+        let min_mtu = 1300;
+        let max_mtu = 1500;
+        let finder = MtuFinder::new(dst_ip, min_mtu, max_mtu);
+        assert_eq!(finder.dst_ip, dst_ip);
+        assert_eq!(finder.min_mtu, min_mtu);
+        assert_eq!(finder.max_mtu, max_mtu);
+    }
 }
