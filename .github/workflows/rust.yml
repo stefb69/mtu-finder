@@ -3,8 +3,6 @@ name: Rust Build and Release
 on:
   push:
     branches: [ "master" ]
-    tags:
-      - 'v*'
 
 env:
   CARGO_TERM_COLOR: always
