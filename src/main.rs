@@ -1,88 +1,146 @@
+//! mtu-finder: find the optimal MTU for a network connection.
+//!
+//! Exit codes:
+//! * `0` — a working MTU was found and reported.
+//! * `1` — runtime error (unreachable destination, backend failure).
+//! * `2` — invalid command-line arguments (handled by clap).
 
-use clap::{App, Arg};
-use std::net::{IpAddr,Ipv4Addr};
-use std::time::Duration;
+mod icmp;
+mod search;
+
+use clap::Parser;
+use icmp::{create_pinger, ProbeOutcome};
 use indicatif::{ProgressBar, ProgressStyle};
+use search::{find_mtu, MtuRange, ProbeReport, ProgressReporter};
+use std::net::Ipv4Addr;
+use std::time::Duration;
 
+#[derive(Parser)]
+#[command(
+    name = "mtu-finder",
+    version = env!("CARGO_PKG_VERSION"),
+    about = "Find the optimal MTU for a network connection"
+)]
+struct Cli {
+    /// Destination IPv4 address to probe
+    #[arg(short, long, value_name = "IP")]
+    destination: Ipv4Addr,
 
-struct MtuFinder {
-    dst_ip: Ipv4Addr,
-    min_mtu: u16,
-    max_mtu: u16,
+    /// Range of MTU values to test (format: min:max)
+    #[arg(
+        short,
+        long,
+        default_value = "1300:1500",
+        value_name = "MIN:MAX",
+        value_parser = parse_range
+    )]
+    range: MtuRange,
 }
 
-impl MtuFinder {
-    fn new(dst_ip: Ipv4Addr, min_mtu: u16, max_mtu: u16) -> Self {
-        MtuFinder {
-            dst_ip,
-            min_mtu,
-            max_mtu,
-        }
+/// Parse and validate a `MIN:MAX` range in one step so bad input becomes a
+/// clean clap error instead of a panic.
+fn parse_range(s: &str) -> Result<MtuRange, String> {
+    let (min, max) = s
+        .split_once(':')
+        .ok_or_else(|| "expected MIN:MAX".to_string())?;
+    let min: u16 = min
+        .trim()
+        .parse()
+        .map_err(|_| format!("invalid minimum MTU '{min}'"))?;
+    let max: u16 = max
+        .trim()
+        .parse()
+        .map_err(|_| format!("invalid maximum MTU '{max}'"))?;
+    MtuRange::new(min, max)
+}
+
+struct TerminalReporter {
+    bar: ProgressBar,
+}
+
+impl TerminalReporter {
+    fn new(range: &MtuRange, dst: Ipv4Addr) -> Self {
+        println!(
+            "\x1b[1;34m🔍 mtu-finder:\x1b[0m \x1b[1;33mLooking for the optimal MTU\x1b[0m between \x1b[1;32m{}\x1b[0m and \x1b[1;32m{}\x1b[0m for connection to \x1b[1;35m{}\x1b[0m 🌐",
+            range.min, range.max, dst
+        );
+        // Binary search probe count is data-dependent, so use a spinner
+        // instead of a determinate bar.
+        let bar = ProgressBar::new_spinner();
+        bar.enable_steady_tick(Duration::from_millis(100));
+        bar.set_style(
+            ProgressStyle::with_template("{spinner:.cyan} {msg}").expect("valid template"),
+        );
+        Self { bar }
+    }
+}
+
+impl ProgressReporter for TerminalReporter {
+    fn probing(&mut self, size: u16) {
+        self.bar
+            .set_message(format!("probing {size} bytes…"));
     }
 
-    fn find_mtu(&self) -> u16 {
-        let pb = ProgressBar::new((self.max_mtu - self.min_mtu) as u64);
-        pb.set_style(ProgressStyle::default_bar()
-            .template("{msg} {bar:40.cyan/blue} {percent}% ({eta})").expect("Invalid template")
-            .progress_chars("##-"));
-
-
-        let options = ping_rs::PingOptions { ttl: 128, dont_fragment: true };
-        let timeout = Duration::from_secs(1);
-        let mut last_working_mtu = self.min_mtu;
-
-        for size in self.min_mtu..=self.max_mtu {
-            pb.inc(1);
-            let buffersize = size - 28; // 28 is the size of the IP header
-            let data: Vec<u8> = (0..buffersize).map(|_| rand::random::<u8>()).collect();
-            let ip_addr = IpAddr::V4(self.dst_ip);
-            let response = ping_rs::send_ping(&ip_addr, timeout, &data, Some(&options));
-            match response {
-                Ok(_) =>  { 
-                    last_working_mtu = size;
-                },
-                Err(_) => {
-                    break;
-                }
-            }
-        }
-        pb.finish_with_message("MTU found!");
-        last_working_mtu
+    fn result(&mut self, size: u16, outcome: &ProbeOutcome) {
+        let label = match outcome {
+            ProbeOutcome::Fits => "fits",
+            ProbeOutcome::TooLarge => "too large",
+            ProbeOutcome::Inconclusive => "no reply (inconclusive)",
+            ProbeOutcome::Fatal(_) => "error",
+        };
+        self.bar.set_message(format!("{size} bytes → {label}"));
     }
+
+    fn finish(&mut self, message: &str) {
+        self.bar.finish_with_message(message.to_string());
+    }
+}
+
+fn print_report(report: &ProbeReport) {
+    println!(
+        "\x1b[1;32m✅ Recommended MTU:\x1b[0m \x1b[1m{}\x1b[0m",
+        report.mtu
+    );
+    if report.reached_range_max {
+        println!(
+            "   note: this is the top of the tested range — the true MTU may be higher, try a wider -r range"
+        );
+    }
+    if report.upper_inconclusive {
+        println!(
+            "   note: sizes above {} timed out rather than being rejected; the true MTU may be slightly higher",
+            report.mtu
+        );
+    }
+    println!(
+        "Configuration suggestion: Set your MTU to {} for optimal performance.",
+        report.mtu
+    );
 }
 
 fn main() {
-    let app = App::new("mtu_finder")
-        .version("1.0")
-        .author("Your Name")
-        .about(" Finds the optimal MTU for a network connection")
-        .arg(Arg::new("destination")
-            .short('d')
-            .long("destination")
-            .takes_value(true)
-            .required(true)
-            .help("Destination IP address"))
-        .arg(Arg::new("range")
-            .short('r')
-            .long("range")
-            .takes_value(true)
-            .default_value("1300:1500")
-            .help("Range of MTU values to test (format: min:max)"));
-   
+    let cli = Cli::parse();
 
-    let matches = app.get_matches();
+    let mut pinger = match create_pinger() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("error: failed to open ICMP socket: {e}");
+            std::process::exit(1);
+        }
+    };
 
-    let dst_ip = matches.value_of("destination").unwrap().parse::<Ipv4Addr>().unwrap();
-    let range = matches.value_of("range").unwrap();
-    let (min_mtu, max_mtu) = range.split_once(':').unwrap();
-    let min_mtu: u16 = min_mtu.parse().unwrap();
-    let max_mtu: u16 = max_mtu.parse().unwrap();
-    println!("\x1b[1;34m🔍 mtu-finder:\x1b[0m \x1b[1;33mLooking for the optimal MTU\x1b[0m between \x1b[1;32m{}\x1b[0m and \x1b[1;32m{}\x1b[0m for connection to \x1b[1;35m{}\x1b[0m 🌐", min_mtu, max_mtu, dst_ip);
-    let finder = MtuFinder::new(dst_ip, min_mtu, max_mtu);
-    let mtu = finder.find_mtu();
-
-    println!("Recommended MTU: {}", mtu);
-    println!("Configuration suggestion: Set your MTU to {} for optimal performance.", mtu);
+    let mut reporter = TerminalReporter::new(&cli.range, cli.destination);
+    match find_mtu(cli.destination, &cli.range, &mut *pinger, &mut reporter) {
+        Ok(report) => {
+            reporter.finish("MTU found!");
+            print_report(&report);
+        }
+        Err(e) => {
+            reporter.finish("failed");
+            eprintln!("error: {e}");
+            std::process::exit(1);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -90,23 +148,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_find_mtu() {
-        let dst_ip = Ipv4Addr::new(8, 8, 8, 8);
-        let min_mtu = 1300;
-        let max_mtu = 1500;
-        let finder = MtuFinder::new(dst_ip, min_mtu, max_mtu);
-        let mtu = finder.find_mtu();
-        assert!(mtu >= min_mtu && mtu <= max_mtu);
+    fn parses_valid_range() {
+        assert_eq!(
+            parse_range("1300:1500").unwrap(),
+            MtuRange {
+                min: 1300,
+                max: 1500
+            }
+        );
+        // Whitespace tolerance.
+        assert_eq!(parse_range(" 1300 : 1500 ").unwrap().min, 1300);
     }
 
     #[test]
-    fn test_new() {
-        let dst_ip = Ipv4Addr::new(8, 8, 8, 8);
-        let min_mtu = 1300;
-        let max_mtu = 1500;
-        let finder = MtuFinder::new(dst_ip, min_mtu, max_mtu);
-        assert_eq!(finder.dst_ip, dst_ip);
-        assert_eq!(finder.min_mtu, min_mtu);
-        assert_eq!(finder.max_mtu, max_mtu);
+    fn rejects_bad_ranges() {
+        assert!(parse_range("1500").is_err(), "missing colon");
+        assert!(parse_range("1500:1300").is_err(), "inverted");
+        assert!(parse_range("20:1500").is_err(), "below the 28-byte floor");
+        assert!(parse_range("abc:1500").is_err(), "non-numeric min");
+        assert!(parse_range("1300:xyz").is_err(), "non-numeric max");
+        assert!(parse_range("70000:80000").is_err(), "u16 overflow");
+        assert!(parse_range("").is_err(), "empty");
     }
 }
