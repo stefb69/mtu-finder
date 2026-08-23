@@ -36,8 +36,15 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(1);
 /// reduce (but do not remove) the ambiguity of timeouts.
 const PROBE_ATTEMPTS: u8 = 3;
 
+/// Used by the Unix backend (which builds the ICMP header by hand) and by
+/// the tests; ping-rs builds the header on Windows.
+#[cfg(any(unix, test))]
 const ICMP_ECHO_REQUEST: u8 = 8;
+#[cfg(any(unix, test))]
+#[allow(dead_code)] // unused in the Windows binary build (ping-rs builds the header)
 const ICMP_ECHO_REPLY: u8 = 0;
+#[cfg(any(unix, test))]
+#[allow(dead_code)] // unused in the Windows binary build
 const ICMP_HEADER_LEN: usize = 8;
 
 /// Classified outcome of a single MTU probe.
@@ -46,7 +53,10 @@ pub enum ProbeOutcome {
     /// A matching echo reply was received: the size fits the path.
     Fits,
     /// The kernel definitively refused to send the packet (it exceeds the
-    /// interface MTU with do-not-fragment enabled).
+    /// interface MTU with do-not-fragment enabled). Only produced by the
+    /// Unix backend: the Windows API reports such failures as errors and
+    /// ping-rs has no interface-MTU signal.
+    #[allow(dead_code)]
     TooLarge,
     /// No reply after all attempts: ambiguous (filtered ICMP, loss, or a
     /// silently dropped oversized packet).
@@ -77,7 +87,10 @@ pub fn create_pinger() -> Result<Box<dyn Pinger>, String> {
     }
 }
 
-/// ICMP one's-complement checksum (RFC 1071).
+/// ICMP one's-complement checksum (RFC 1071). Only used by the Unix
+/// backend, which builds the ICMP header by hand; ping-rs builds it on
+/// Windows.
+#[cfg(any(unix, test))]
 fn icmp_checksum(data: &[u8]) -> u16 {
     let mut sum: u32 = 0;
     let mut i = 0;
@@ -293,8 +306,7 @@ mod windows {
             let payload_len = mtu as usize - MIN_MTU as usize;
             self.payload.clear();
             self.payload.resize(payload_len, 0);
-            rand::thread_rng().fill(&mut self.payload);
-
+            rand::thread_rng().fill(&mut self.payload[..]);
             // ping-rs sends a bare payload (no pre-built ICMP header); the
             // Windows API adds the 8-byte ICMP header, so wire size
             // = payload_len + 8 + 20 = mtu. The `dont_fragment` option is
@@ -308,10 +320,22 @@ mod windows {
                 {
                     Ok(_) => return ProbeOutcome::Fits,
                     Err(ping_rs::PingError::TimedOut) => continue,
-                    Err(e) => return ProbeOutcome::Fatal(format!("ping failed: {e}")),
+                    Err(e) => return ProbeOutcome::Fatal(format!("ping failed: {}", ping_error_desc(&e))),
                 }
             }
             ProbeOutcome::Inconclusive
+        }
+    }
+
+    /// ping-rs's `PingError` only derives `Debug`; render it readably.
+    fn ping_error_desc(e: &ping_rs::PingError) -> String {
+        match e {
+            ping_rs::PingError::BadParameter(p) => format!("bad parameter: {p}"),
+            ping_rs::PingError::OsError(code, msg) => format!("OS error {code}: {msg}"),
+            ping_rs::PingError::IpError(status) => format!("ICMP error: {status:?}"),
+            ping_rs::PingError::TimedOut => "timed out".into(),
+            ping_rs::PingError::IoPending => "I/O pending".into(),
+            ping_rs::PingError::DataSizeTooBig(max) => format!("payload larger than {max}"),
         }
     }
 }
