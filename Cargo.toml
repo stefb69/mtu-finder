@@ -1,11 +1,23 @@
 [package]
 name = "mtu-finder"
-version = "0.0.2"
-edition = "2018"
+version = "0.1.0"
+edition = "2021"
+description = "Find the optimal MTU for a network connection"
+license = "GPL-3.0-only"
 
 [dependencies]
-ping-rs = "0.1.2"
-indicatif = "0.17.8"
-clap = "3.1.4"
-rand = "0.8.5"
+clap = { version = "4", features = ["derive"] }
+indicatif = "0.17"
+rand = "0.8"
+socket2 = "0.5"
 
+# Raw ICMP datagram sockets need platform errno / socket-option constants.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# Windows-only fallback backend. ping-rs accepts large payloads on Windows and
+# applies the do-not-fragment flag via IcmpSendEchoWithOptions. It is dead code
+# everywhere else: its Unix path rejects payloads > 24 bytes and ignores
+# `dont_fragment`, which makes MTU probing meaningless.
+[target.'cfg(windows)'.dependencies]
+ping-rs = "0.1.2"

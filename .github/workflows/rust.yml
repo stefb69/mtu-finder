@@ -1,27 +1,25 @@
-name: Rust Build and Release
+name: CI
 
 on:
   push:
     branches: [ "master" ]
+  pull_request:
 
 env:
   CARGO_TERM_COLOR: always
 
+# Release creation is handled by release.yml (triggered by version tags).
+# This workflow only verifies that the code builds and tests pass on every
+# supported platform.
 jobs:
-  build-and-upload:
+  build:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
-        include:
-          - os: windows-latest
-            executable: mtu-finder.exe
-          - os: macos-latest
-            executable: mtu-finder
-          - os: ubuntu-latest
-            executable: mtu-finder
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Set up Rust
       run: rustup default stable
@@ -31,49 +29,3 @@ jobs:
 
     - name: Build
       run: cargo build --release --verbose
-
-    - name: Upload artifact
-      uses: actions/upload-artifact@v2
-      with:
-        name: ${{ matrix.executable }}
-        path: target/release/${{ matrix.executable }}
-
-    - name: Package Source Code
-      if: startsWith(github.ref, 'refs/tags/') && runner.os == 'Linux'
-      run: zip -r source_code.zip . -x "target/*" -x ".git/*"
-      shell: bash
-
-    - name: Create Release
-      if: startsWith(github.ref, 'refs/tags/')
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref_name }}
-        draft: false
-        prerelease: false
-
-    - name: Upload Executable
-      if: startsWith(github.ref, 'refs/tags/')
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./target/release/${{ matrix.executable }}
-        asset_name: ${{ matrix.executable }}
-        asset_content_type: application/octet-stream
-
-    - name: Upload Source Code Zip
-      if: startsWith(github.ref, 'refs/tags/') && runner.os == 'Linux'
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./source_code.zip
-        asset_name: source_code.zip
-        asset_content_type: application/zip
-
