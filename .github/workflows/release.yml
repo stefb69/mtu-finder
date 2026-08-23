@@ -25,7 +25,9 @@ jobs:
     if: github.repository == 'stefb69/mtu-finder'
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
+      # release-please only fills tag_name when it created the release itself
+      # (release-branch flow). On a manual tag push, derive it from the ref.
+      tag_name: ${{ steps.release.outputs.tag_name || (startsWith(github.ref, 'refs/tags/') && github.ref_name) || '' }}
       # Also build when the run is triggered by a tag push (manual tag or
       # retrigger): release-please only reports release_created=true when it
       # created the release itself (e.g. from the release branch).
