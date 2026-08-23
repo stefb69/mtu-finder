@@ -5,6 +5,10 @@ on:
       - release
     tags:
       - 'v*'
+  # Allow manual re-runs (e.g. 'gh workflow run release.yml --ref vX.Y.Z')
+  workflow_dispatch:
+    tags:
+      - 'v*'
 
 env:
   CARGO_INCREMENTAL: 0
