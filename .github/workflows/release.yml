@@ -22,6 +22,10 @@ jobs:
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
+      # Also build when the run is triggered by a tag push (manual tag or
+      # retrigger): release-please only reports release_created=true when it
+      # created the release itself (e.g. from the release branch).
+      on_tag: ${{ startsWith(github.ref, 'refs/tags/') }}
     steps:
       - uses: google-github-actions/release-please-action@v4
         id: release
@@ -33,7 +37,7 @@ jobs:
   github_build:
     name: Build release binaries
     needs: release_please
-    if: ${{ needs.release_please.outputs.release_created == 'true' }}
+    if: ${{ needs.release_please.outputs.release_created == 'true' || needs.release_please.outputs.on_tag == 'true' }}
     strategy:
       fail-fast: false
       matrix:
